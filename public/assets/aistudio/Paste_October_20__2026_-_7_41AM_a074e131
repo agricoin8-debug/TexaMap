@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texarkana Live Map & Agent Trace</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        google: {
+                            blue: '#1a73e8',
+                            blueHover: '#1557b0',
+                            gray: '#5f6368',
+                            darkBg: '#202124',
+                            darkCard: '#2d2e30',
+                            border: '#dadce0',
+                            darkBorder: '#3c4043'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        #map {
+            width: 100%;
+            height: 100vh;
+            z-index: 0;
+        }
+        /* Custom map marker styles */
+        .user-pulse-marker {
+            position: relative;
+        }
+        .user-pulse-marker::before {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: rgba(26, 115, 232, 0.4);
+            border-radius: 50%;
+            top: -6px;
+            left: -6px;
+            animation: pulse 1.8s infinite;
+        }
+        .user-pulse-dot {
+            width: 12px;
+            height: 12px;
+            background-color: #1a73e8;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(2.4); opacity: 0; }
+        }
+        /* Hide scrollbars for clean UI */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-google-darkBg text-gray-800 dark:text-gray-100 font-sans overflow-hidden select-none">
+
+    <!-- Map Canvas Container -->
+    <div id="map"></div>
+
+    <!-- Top Floating Search & Action Bar -->
+    <div class="absolute top-4 left-4 right-4 md:left-6 md:w-96 z-10 space-y-2 pointer-events-none">
+        <div class="pointer-events-auto bg-white dark:bg-google-darkCard shadow-lg rounded-full flex items-center px-4 py-2 border border-gray-200 dark:border-google-darkBorder">
+            <i class="fa-solid fa-magnifying-glass text-gray-400 mr-3"></i>
+            <input id="searchInput" type="text" placeholder="Search Texarkana or set destination..." 
+                   class="w-full bg-transparent border-none focus:outline-none text-sm text-gray-800 dark:text-gray-100 placeholder-gray-400"
+                   onclick="openDestinationModal()">
+            <button onclick="openDestinationModal()" class="ml-2 bg-google-blue text-white px-3 py-1.5 rounded-full text-xs font-medium hover:bg-google-blueHover transition flex items-center gap-1.5">
+                <i class="fa-solid fa-route"></i>
+                <span>Trace</span>
+            </button>
+        </div>
+
+        <!-- Texarkana Quick Landmark Chips -->
+        <div class="pointer-events-auto flex items-center space-x-2 overflow-x-auto no-scrollbar py-1">
+            <button onclick="quickSelectLandmark('courtHouse')" class="whitespace-nowrap px-3 py-1 bg-white dark:bg-google-darkCard text-xs font-medium rounded-full shadow border border-gray-200 dark:border-google-darkBorder hover:bg-gray-50 dark:hover:bg-gray-700 transition flex items-center gap-1">
+                <i class="fa-solid fa-landmark text-google-blue"></i> State Line Post Office
+            </button>
+            <button onclick="quickSelectLandmark('tamut')" class="whitespace-nowrap px-3 py-1 bg-white dark:bg-google-darkCard text-xs font-medium rounded-full shadow border border-gray-200 dark:border-google-darkBorder hover:bg-gray-50 dark:hover:bg-gray-700 transition flex items-center gap-1">
+                <i class="fa-solid fa-graduation-cap text-indigo-500"></i> TAMU-Texarkana
+            </button>
+            <button onclick="quickSelectLandmark('springLake')" class="whitespace-nowrap px-3 py-1 bg-white dark:bg-google-darkCard text-xs font-medium rounded-full shadow border border-gray-200 dark:border-google-darkBorder hover:bg-gray-50 dark:hover:bg-gray-700 transition flex items-center gap-1">
+                <i class="fa-solid fa-tree text-green-500"></i> Spring Lake Park
+            </button>
+        </div>
+    </div>
+
+    <!-- Map Control Buttons (Zoom, Layer, Center) -->
+    <div class="absolute top-4 right-4 z-10 flex flex-col space-y-2">
+        <button onclick="toggleMapTile()" title="Toggle Map Style" class="w-10 h-10 bg-white dark:bg-google-darkCard rounded-full shadow-md border border-gray-200 dark:border-google-darkBorder flex items-center justify-center text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+            <i class="fa-solid fa-layer-group"></i>
+        </button>
+        <button onclick="centerOnTexarkana()" title="Recenter Map" class="w-10 h-10 bg-white dark:bg-google-darkCard rounded-full shadow-md border border-gray-200 dark:border-google-darkBorder flex items-center justify-center text-google-blue hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+            <i class="fa-solid fa-crosshairs text-lg"></i>
+        </button>
+        <button onclick="toggleConsoleDrawer()" title="Toggle Backend Agent Console" class="w-10 h-10 bg-gray-900 text-green-400 rounded-full shadow-md border border-gray-700 flex items-center justify-center hover:bg-black transition relative">
+            <i class="fa-solid fa-terminal text-sm"></i>
+            <span id="agentStatusDot" class="absolute top-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white animate-ping"></span>
+        </button>
+    </div>
+
+    <!-- Active Map Trace Navigation Dashboard Card -->
+    <div id="traceDashboard" class="hidden absolute top-20 md:top-20 right-4 left-4 md:left-auto md:w-80 z-10 bg-white dark:bg-google-darkCard rounded-2xl shadow-xl border border-gray-200 dark:border-google-darkBorder p-4 transition-all duration-300">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-google-darkBorder">
+            <div class="flex items-center gap-2">
+                <span class="relative flex h-3 w-3">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <span class="text-xs font-bold tracking-wider text-emerald-600 dark:text-emerald-400 uppercase">Live Agent Trace Active</span>
+            </div>
+            <button onclick="stopTrace()" class="text-gray-400 hover:text-red-500 transition">
+                <i class="fa-solid fa-xmark text-sm"></i>
+            </button>
+        </div>
+
+        <div class="mt-3 space-y-3">
+            <div>
+                <p class="text-xs text-gray-400 uppercase font-medium">Destination</p>
+                <p id="dashDestName" class="font-semibold text-gray-800 dark:text-gray-100 truncate text-sm">Texarkana Courthouse</p>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-3 gap-2 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-xl text-center border border-gray-100 dark:border-gray-700">
+                <div>
+                    <span class="block text-[10px] text-gray-400 uppercase">ETA</span>
+                    <span id="dashEta" class="font-bold text-gray-800 dark:text-gray-100 text-xs">-- min</span>
+                </div>
+                <div>
+                    <span class="block text-[10px] text-gray-400 uppercase">Distance</span>
+                    <span id="dashDist" class="font-bold text-google-blue text-xs">-- mi</span>
+                </div>
+                <div>
+                    <span class="block text-[10px] text-gray-400 uppercase">Speed</span>
+                    <span id="dashSpeed" class="font-bold text-emerald-500 text-xs">0 mph</span>
+                </div>
+            </div>
+
+            <!-- Share Button -->
+            <button onclick="copyShareableLink()" class="w-full bg-google-blue hover:bg-google-blueHover text-white py-2 px-3 rounded-xl font-medium text-xs shadow transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-share-nodes"></i>
+                <span>Copy Live Location Link</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Backend Agent Telemetry Console Drawer -->
+    <div id="consoleDrawer" class="fixed bottom-0 left-0 right-0 z-20 bg-gray-950 text-emerald-400 border-t border-gray-800 shadow-2xl transition-transform duration-300 transform translate-y-full max-h-64 flex flex-col font-mono text-xs">
+        <div class="bg-gray-900 px-4 py-2 flex items-center justify-between border-b border-gray-800">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-server text-emerald-500"></i>
+                <span class="font-bold text-gray-200 text-xs tracking-wide">BACKEND AGENT TELEMETRY ENGINE</span>
+                <span class="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.5 rounded">AUTONOMOUS</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="clearAgentLogs()" class="text-gray-400 hover:text-gray-200 text-xs">Clear Log</button>
+                <button onclick="toggleConsoleDrawer()" class="text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-chevron-down"></i>
+                </button>
+            </div>
+        </div>
+        <div id="consoleLogs" class="p-3 overflow-y-auto space-y-1 h-48 text-[11px] leading-relaxed">
+            <!-- Dynamic logs inserted here -->
+        </div>
+    </div>
+
+    <!-- Destination Selection Modal -->
+    <div id="destinationModal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-google-darkCard w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 dark:border-google-darkBorder overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div class="p-4 border-b border-gray-100 dark:border-google-darkBorder flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-full bg-google-blue/10 flex items-center justify-center text-google-blue">
+                        <i class="fa-solid fa-location-dot"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-gray-900 dark:text-gray-100 text-sm">Enter Destination</h3>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Set route trace in Texarkana region</p>
+                    </div>
+                </div>
+                <button onclick="closeDestinationModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="p-4 space-y-4">
+                <!-- Inputs -->
+                <div class="space-y-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">ORIGIN LOCATION</label>
+                        <div class="flex items-center bg-gray-50 dark:bg-gray-800 rounded-xl px-3 py-2 border border-gray-200 dark:border-gray-700 text-xs">
+                            <i class="fa-solid fa-circle text-google-blue mr-2.5 text-[10px]"></i>
+                            <input id="originInput" type="text" value="Current Position (Downtown Texarkana)" readonly class="bg-transparent w-full focus:outline-none text-gray-700 dark:text-gray-200 font-medium cursor-not-allowed">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">DESTINATION LOCATION</label>
+                        <div class="flex items-center bg-white dark:bg-gray-800 rounded-xl px-3 py-2 border border-google-blue/50 ring-2 ring-google-blue/20 text-xs">
+                            <i class="fa-solid fa-location-dot text-red-500 mr-2.5"></i>
+                            <input id="modalDestInput" type="text" placeholder="Search or select landmark below..." 
+                                   class="bg-transparent w-full focus:outline-none text-gray-800 dark:text-gray-100 font-medium">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Suggestions -->
+                <div>
+                    <span class="block text-[11px] font-semibold text-gray-400 uppercase mb-2">Texarkana Landmarks</span>
+                    <div class="space-y-1.5 max-h-48 overflow-y-auto no-scrollbar">
+                        <div onclick="selectPresetDestination('courtHouse')" class="p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl cursor-pointer transition flex items-center justify-between border border-transparent hover:border-gray-200 dark:hover:border-gray-700">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-building-columns text-gray-400"></i>
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-800 dark:text-gray-200">State Line Post Office & Courthouse</p>
+                                    <p class="text-[10px] text-gray-400">500 N State Line Ave, Texarkana</p>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-chevron-right text-xs text-gray-300"></i>
+                        </div>
+
+                        <div onclick="selectPresetDestination('tamut')" class="p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl cursor-pointer transition flex items-center justify-between border border-transparent hover:border-gray-200 dark:hover:border-gray-700">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-graduation-cap text-indigo-500"></i>
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-800 dark:text-gray-200">Texas A&M University - Texarkana</p>
+                                    <p class="text-[10px] text-gray-400">7101 University Ave, Texarkana, TX</p>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-chevron-right text-xs text-gray-300"></i>
+                        </div>
+
+                        <div onclick="selectPresetDestination('springLake')" class="p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl cursor-pointer transition flex items-center justify-between border border-transparent hover:border-gray-200 dark:hover:border-gray-700">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-tree text-green-500"></i>
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-800 dark:text-gray-200">Spring Lake Park</p>
+                                    <p class="text-[10px] text-gray-400">4303 N Park Rd, Texarkana, TX</p>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-chevron-right text-xs text-gray-300"></i>
+                        </div>
+
+                        <div onclick="selectPresetDestination('wrightPatman')" class="p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl cursor-pointer transition flex items-center justify-between border border-transparent hover:border-gray-200 dark:hover:border-gray-700">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-water text-blue-500"></i>
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-800 dark:text-gray-200">Wright Patman Lake</p>
+                                    <p class="text-[10px] text-gray-400">Texarkana Regional Reservoir, TX</p>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-chevron-right text-xs text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-4 bg-gray-50 dark:bg-gray-800/40 border-t border-gray-100 dark:border-google-darkBorder flex justify-end gap-2">
+                <button onclick="closeDestinationModal()" class="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition">Cancel</button>
+                <button onclick="confirmAndStartTrace()" class="px-5 py-2 text-xs font-medium bg-google-blue hover:bg-google-blueHover text-white rounded-xl shadow transition flex items-center gap-2">
+                    <span>Initialize Trace</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-4 py-2.5 rounded-full shadow-2xl text-xs font-medium flex items-center gap-2 transition-all duration-300 opacity-0 pointer-events-none translate-y-4">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toastMsg">Notification message</span>
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script>
+        // --- 1. Texarkana Presets & Constants ---
+        const TEXARKANA_CENTER = [33.4251, -94.0477];
+        
+        const PRESET_LANDMARKS = {
+            downtown: { name: "Downtown Texarkana Origin", coords: [33.4251, -94.0477] },
+            courtHouse: { name: "State Line Post Office & Courthouse", coords: [33.4253, -94.0430] },
+            tamut: { name: "Texas A&M University - Texarkana", coords: [33.4735, -94.1165] },
+            springLake: { name: "Spring Lake Park", coords: [33.4601, -94.0674] },
+            wrightPatman: { name: "Wright Patman Lake", coords: [33.2970, -94.1685] }
+        };
+
+        // --- 2. State Management ---
+        let map;
+        let activeTileLayer;
+        let isDarkTile = false;
+        
+        // Trace State
+        let activeTrace = null;
+        let liveMarker = null;
+        let routePolyline = null;
+        let destinationMarker = null;
+        let traceInterval = null;
+        
+        let selectedDestination = PRESET_LANDMARKS.courtHouse;
+
+        // --- 3. Leaflet Map Initialization ---
+        window.onload = function() {
+            // Light & Dark Tile URLs (CartoDB Sleek tiles)
+            const lightTileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+            const darkTileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView(TEXARKANA_CENTER, 13);
+
+            activeTileLayer = L.tileLayer(lightTileUrl, {
+                maxZoom: 19,
+                subdomains: 'abcd'
+            }).addTo(map);
+
+            // Add smooth user location pulse at origin
+            initUserOriginMarker(TEXARKANA_CENTER);
+
+            // Log initialization in agent backend console
+            logAgent('BACKEND_INIT', 'Agent Engine initialized. Core center locked: Texarkana (33.4251, -94.0477).');
+
+            // Parse URL parameters for shared traces
+            checkSharedTraceUrl();
+        };
+
+        function initUserOriginMarker(coords) {
+            const userPulseIcon = L.divIcon({
+                className: 'user-pulse-marker',
+                html: '<div class="user-pulse-dot"></div>',
+                iconSize: [12, 12],
+                iconAnchor: [6, 6]
+            });
+            L.marker(coords, { icon: userPulseIcon }).addTo(map)
+                .bindPopup("<b>Your Current Position</b><br>Texarkana, TX/AR");
+        }
+
+        function toggleMapTile() {
+            isDarkTile = !isDarkTile;
+            const newUrl = isDarkTile 
+                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+            
+            map.removeLayer(activeTileLayer);
+            activeTileLayer = L.tileLayer(newUrl, { maxZoom: 19, subdomains: 'abcd' }).addTo(map);
+            showToast(isDarkTile ? "Switched to Dark Mode Map" : "Switched to Light Mode Map");
+            logAgent('MAP_THEME', `Map raster layer updated. Mode: ${isDarkTile ? 'Dark' : 'Light'}`);
+        }
+
+        function centerOnTexarkana() {
+            map.flyTo(TEXARKANA_CENTER, 13, { duration: 1.2 });
+            showToast("Centered on Texarkana");
+        }
+
+        // --- 4. Modal & Destination Flow ---
+        function openDestinationModal() {
+            document.getElementById('destinationModal').classList.remove('hidden');
+            logAgent('UI_EVENT', 'Destination modal opened by user.');
+        }
+
+        function closeDestinationModal() {
+            document.getElementById('destinationModal').classList.add('hidden');
+        }
+
+        function selectPresetDestination(key) {
+            if (PRESET_LANDMARKS[key]) {
+                selectedDestination = PRESET_LANDMARKS[key];
+                document.getElementById('modalDestInput').value = selectedDestination.name;
+                showToast(`Selected: ${selectedDestination.name}`);
+                logAgent('DEST_SELECT', `Target set to preset landmark: ${selectedDestination.name}`);
+            }
+        }
+
+        function quickSelectLandmark(key) {
+            selectPresetDestination(key);
+            startAgentTrace();
+        }
+
+        function confirmAndStartTrace() {
+            const customVal = document.getElementById('modalDestInput').value.trim();
+            if (customVal && customVal !== selectedDestination.name) {
+                // Approximate custom location near Texarkana center for demo simulation
+                selectedDestination = {
+                    name: customVal,
+                    coords: [33.4251 + (Math.random() - 0.5) * 0.08, -94.0477 + (Math.random() - 0.5) * 0.08]
+                };
+            }
+            closeDestinationModal();
+            startAgentTrace();
+        }
+
+        // --- 5. Backend Agent Simulation & Route Interpolation ---
+        function startAgentTrace() {
+            stopTrace(); // Clear previous trace if active
+
+            const startCoords = TEXARKANA_CENTER;
+            const endCoords = selectedDestination.coords;
+
+            logAgent('AGENT_ROUTING', `Calculating path from [${startCoords.join(', ')}] to [${endCoords.join(', ')}]...`);
+
+            // Generate intermediate waypoints to simulate route pathing
+            const waypoints = generateInterpolatedWaypoints(startCoords, endCoords, 60);
+
+            // Draw destination marker
+            const destIcon = L.divIcon({
+                className: 'custom-dest-pin',
+                html: '<div style="color: #ea4335; font-size: 24px;"><i class="fa-solid fa-location-dot"></i></div>',
+                iconSize: [24, 24],
+                iconAnchor: [12, 24]
+            });
+            destinationMarker = L.marker(endCoords, { icon: destIcon }).addTo(map)
+                .bindPopup(`<b>Destination</b><br>${selectedDestination.name}`);
+
+            // Draw route line
+            routePolyline = L.polyline(waypoints, {
+                color: '#1a73e8',
+                weight: 5,
+                opacity: 0.8,
+                dashArray: '1, 8'
+            }).addTo(map);
+
+            // Fit map view to route bounds
+            map.fitBounds(routePolyline.getBounds(), { padding: [50, 50] });
+
+            // Create moving live agent marker
+            const agentIcon = L.divIcon({
+                className: 'custom-agent-icon',
+                html: '<div style="background: #1a73e8; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 2px solid white;"><i class="fa-solid fa-navigation text-xs"></i></div>',
+                iconSize: [28, 28],
+                iconAnchor: [14, 14]
+            });
+            liveMarker = L.marker(startCoords, { icon: agentIcon }).addTo(map);
+
+            // Update UI
+            document.getElementById('traceDashboard').classList.remove('hidden');
+            document.getElementById('dashDestName').innerText = selectedDestination.name;
+
+            // Start simulation loop
+            let step = 0;
+            const totalSteps = waypoints.length;
+            const totalDistance = calculateDistanceMiles(startCoords, endCoords);
+
+            logAgent('TELEMETRY_STREAM', `Stream active. Total distance: ${totalDistance.toFixed(2)} mi. Publishing state...`);
+
+            traceInterval = setInterval(() => {
+                if (step >= totalSteps) {
+                    clearInterval(traceInterval);
+                    logAgent('AGENT_ARRIVED', `Destination reached: ${selectedDestination.name}`);
+                    showToast("Arrived at Destination!");
+                    document.getElementById('dashEta').innerText = "0 min";
+                    document.getElementById('dashDist').innerText = "0.0 mi";
+                    document.getElementById('dashSpeed').innerText = "0 mph";
+                    return;
+                }
+
+                const currentPos = waypoints[step];
+                liveMarker.setLatLng(currentPos);
+
+                // Calculate remaining stats
+                const remainingRatio = 1 - (step / totalSteps);
+                const distRem = totalDistance * remainingRatio;
+                const simulatedSpeed = Math.floor(35 + Math.random() * 12); // Simulated mph
+                const etaMinutes = Math.ceil((distRem / simulatedSpeed) * 60);
+
+                document.getElementById('dashDist').innerText = `${distRem.toFixed(1)} mi`;
+                document.getElementById('dashEta').innerText = `${etaMinutes} min`;
+                document.getElementById('dashSpeed').innerText = `${simulatedSpeed} mph`;
+
+                // Periodically log agent state to console
+                if (step % 10 === 0) {
+                    logAgent('GEOPROCESSOR', `Lat: ${currentPos[0].toFixed(4)}, Lng: ${currentPos[1].toFixed(4)} | Speed: ${simulatedSpeed}mph | Rem: ${distRem.toFixed(2)}mi`);
+                }
+
+                step++;
+            }, 600);
+
+            // Save trace payload
+            activeTrace = {
+                destName: selectedDestination.name,
+                destCoords: endCoords,
+                originCoords: startCoords
+            };
+        }
+
+        function stopTrace() {
+            if (traceInterval) clearInterval(traceInterval);
+            if (routePolyline) map.removeLayer(routePolyline);
+            if (destinationMarker) map.removeLayer(destinationMarker);
+            if (liveMarker) map.removeLayer(liveMarker);
+
+            document.getElementById('traceDashboard').classList.add('hidden');
+            activeTrace = null;
+            logAgent('AGENT_STOPPED', 'Trace session terminated.');
+        }
+
+        // --- 6. Helper Utilities & Link Sharing ---
+        function generateInterpolatedWaypoints(start, end, steps) {
+            const points = [];
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                // Add slight curvature for realistic road feel
+                const curveFactor = Math.sin(t * Math.PI) * 0.005;
+                const lat = start[0] + (end[0] - start[0]) * t + curveFactor;
+                const lng = start[1] + (end[1] - start[1]) * t;
+                points.push([lat, lng]);
+            }
+            return points;
+        }
+
+        function calculateDistanceMiles(coord1, coord2) {
+            const R = 3958.8; // Earth radius in miles
+            const dLat = (coord2[0] - coord1[0]) * Math.PI / 180;
+            const dLng = (coord2[1] - coord1[1]) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(coord1[0] * Math.PI / 180) * Math.cos(coord2[0] * Math.PI / 180) *
+                      Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function copyShareableLink() {
+            if (!activeTrace) return;
+
+            const payload = encodeURIComponent(JSON.stringify({
+                dest: activeTrace.destName,
+                lat: activeTrace.destCoords[0],
+                lng: activeTrace.destCoords[1]
+            }));
+
+            const shareUrl = `${window.location.origin}${window.location.pathname}?trace=${payload}`;
+
+            // Exec command copy fallback for reliable clipboard writing
+            const tempInput = document.createElement('input');
+            tempInput.value = shareUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+
+            showToast("Live Trace Link Copied to Clipboard!");
+            logAgent('WEBSOCKET_SYNC', `Payload state synchronized to URL: ${shareUrl}`);
+        }
+
+        function checkSharedTraceUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const traceParam = urlParams.get('trace');
+            if (traceParam) {
+                try {
+                    const data = JSON.parse(decodeURIComponent(traceParam));
+                    selectedDestination = {
+                        name: data.dest,
+                        coords: [data.lat, data.lng]
+                    };
+                    showToast(`Loaded Shared Trace to ${data.dest}`);
+                    logAgent('SHARED_LINK', `Decoded shared payload. Destination: ${data.dest}`);
+                    setTimeout(() => startAgentTrace(), 1000);
+                } catch (e) {
+                    console.error("Failed to parse trace payload", e);
+                }
+            }
+        }
+
+        // --- 7. Agent Console & Toast Helpers ---
+        function toggleConsoleDrawer() {
+            const consoleDrawer = document.getElementById('consoleDrawer');
+            consoleDrawer.classList.toggle('translate-y-full');
+        }
+
+        function logAgent(tag, text) {
+            const consoleLogs = document.getElementById('consoleLogs');
+            const time = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'font-mono text-[11px] leading-tight';
+            logEntry.innerHTML = `<span class="text-gray-500">[${time}]</span> <span class="text-emerald-400 font-semibold">[${tag}]</span> <span class="text-gray-300">${text}</span>`;
+            
+            consoleLogs.appendChild(logEntry);
+            consoleLogs.scrollTop = consoleLogs.scrollHeight;
+        }
+
+        function clearAgentLogs() {
+            document.getElementById('consoleLogs').innerHTML = '';
+            logAgent('SYSTEM', 'Log buffer cleared.');
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-4');
+            toast.classList.add('opacity-100', 'translate-y-0');
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-4');
+                toast.classList.remove('opacity-100', 'translate-y-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "name": "Texarkana Live Map & Autonomous Agent Trace",
+  "description": "Interactive real-time map with autonomous agent telemetry, automated waypoint tours, geofencing, multi-agent fleet operations, and AI mission intelligence.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
