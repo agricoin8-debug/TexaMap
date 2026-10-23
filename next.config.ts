@@ -2,9 +2,6 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  env: {
-    NEXT_PUBLIC_CARTO_BASEMAP_API: process.env.CARTO_basemap_api,
-  },
   eslint: {
     ignoreDuringBuilds: true,
   },
