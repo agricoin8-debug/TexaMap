@@ -93,6 +93,8 @@ export default function MapDashboard({ operatorName }: { operatorName?: string }
   const [destinationCoords, setDestinationCoords] = useState<[number, number] | null>(
     PRESET_LANDMARKS.courtHouse.coords
   );
+  const [originName, setOriginName] = useState<string>('Downtown Texarkana');
+  const [arrivalAt, setArrivalAt] = useState<string | null>(null);
   const originCoords: [number, number] = TEXARKANA_CENTER;
   const [waypoints, setWaypoints] = useState<[number, number][]>([]);
   const [currentWaypointIndex, setCurrentWaypointIndex] = useState<number>(0);
@@ -107,7 +109,7 @@ export default function MapDashboard({ operatorName }: { operatorName?: string }
   const [latencyMs, setLatencyMs] = useState<number>(18);
 
   // --- Modals & Tours ---
-  const [isDestModalOpen, setIsDestModalOpen] = useState<boolean>(false);
+  const [isDestModalOpen, setIsDestModalOpen] = useState<boolean>(true);
   const [isTourActive, setIsTourActive] = useState<boolean>(false);
   const [tourStepIndex, setTourStepIndex] = useState<number>(0);
 
@@ -190,9 +192,11 @@ export default function MapDashboard({ operatorName }: { operatorName?: string }
 
   // --- Initialize Route Trace Function ---
   const initializeTrace = useCallback(
-    (targetName: string, targetCoords: [number, number], aiPlan?: any) => {
+    (targetName: string, targetCoords: [number, number], aiPlan?: any, nextOriginName?: string, nextArrivalAt?: string) => {
       setDestinationName(targetName);
       setDestinationCoords(targetCoords);
+      setOriginName(nextOriginName || 'Downtown Texarkana');
+      setArrivalAt(nextArrivalAt || null);
       setHasRerouted(false);
       setIsRerouting(false);
 
@@ -303,8 +307,11 @@ export default function MapDashboard({ operatorName }: { operatorName?: string }
   useEffect(() => {
     if (!isTraceActive || waypoints.length === 0) return;
 
-    // Slower tick intervals for relaxed, steady tracking
-    const intervalMs = speedMode === 'slow' ? 1200 : speedMode === 'normal' ? 850 : 550;
+    const scheduledArrival = arrivalAt ? new Date(arrivalAt).getTime() : 0;
+    const remainingMs = scheduledArrival ? Math.max(1000, scheduledArrival - Date.now()) : 0;
+    const intervalMs = scheduledArrival
+      ? Math.max(120, Math.floor(remainingMs / Math.max(1, waypoints.length - currentWaypointIndex)))
+      : speedMode === 'slow' ? 1200 : speedMode === 'normal' ? 850 : 550;
 
     const interval = setInterval(() => {
       setCurrentWaypointIndex((prevIdx) => {
@@ -408,6 +415,8 @@ export default function MapDashboard({ operatorName }: { operatorName?: string }
     triggerAutomatedReroute,
     activeAgent.battery,
     speedMode,
+    arrivalAt,
+    currentWaypointIndex,
     addLog,
     showToast,
   ]);
@@ -841,8 +850,9 @@ export default function MapDashboard({ operatorName }: { operatorName?: string }
         isOpen={isDestModalOpen}
         onClose={() => setIsDestModalOpen(false)}
         activeAgentName={activeAgent.name}
-        onConfirmDestination={(name, coords, aiPlan) => {
-          initializeTrace(name, coords, aiPlan);
+        onConfirmDestination={(name, coords, aiPlan, nextOriginName, nextArrivalAt) => {
+          initializeTrace(name, coords, aiPlan, nextOriginName, nextArrivalAt);
+          addLog('AI_MISSION', `Mission launched immediately from ${nextOriginName || 'Downtown Texarkana'} to ${name}. Arrival locked for ${nextArrivalAt ? new Date(nextArrivalAt).toLocaleTimeString() : 'continuous run'}.`);
         }}
       />
 

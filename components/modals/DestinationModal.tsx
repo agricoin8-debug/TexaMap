@@ -23,7 +23,7 @@ import { PRESET_LANDMARKS } from '@/lib/texarkana-data';
 interface DestinationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirmDestination: (name: string, coords: [number, number], aiPlan?: any) => void;
+  onConfirmDestination: (name: string, coords: [number, number], aiPlan?: any, originName?: string, arrivalAt?: string) => void;
   activeAgentName: string;
 }
 
@@ -36,7 +36,13 @@ export default function DestinationModal({
   const [activeTab, setActiveTab] = useState<'presets' | 'ai_agent' | 'custom'>('presets');
   const [selectedKey, setSelectedKey] = useState<string>('courtHouse');
   const [customInput, setCustomInput] = useState<string>('');
-  
+  const [originInput, setOriginInput] = useState<string>('Downtown Texarkana');
+  const [arrivalAt, setArrivalAt] = useState<string>(() => {
+    const next = new Date(Date.now() + 60_000);
+    next.setSeconds(0, 0);
+    return next.toISOString().slice(0, 16);
+  });
+
   // AI Mission Prompt state
   const [aiPrompt, setAiPrompt] = useState<string>('');
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
@@ -60,10 +66,13 @@ export default function DestinationModal({
         const randOffsetLng = (Math.random() - 0.5) * 0.06;
         onConfirmDestination(
           customInput,
-          [Number((33.4251 + randOffsetLat).toFixed(5)), Number((-94.0477 + randOffsetLng).toFixed(5))]
+          [Number((33.4251 + randOffsetLat).toFixed(5)), Number((-94.0477 + randOffsetLng).toFixed(5))],
+          undefined,
+          originInput,
+          new Date(arrivalAt).toISOString()
         );
       } else if (landmark) {
-        onConfirmDestination(landmark.name, landmark.coords);
+        onConfirmDestination(landmark.name, landmark.coords, undefined, originInput, new Date(arrivalAt).toISOString());
       }
       onClose();
     }
@@ -184,15 +193,15 @@ export default function DestinationModal({
 
         {/* Modal Body */}
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
-          {/* Origin Card */}
-          <div className="bg-black/30 p-3 rounded-2xl border border-white/5 text-xs">
-            <span className="block text-[10px] uppercase font-mono font-bold text-gray-400 mb-1">
-              ORIGIN ANCHOR
-            </span>
-            <div className="flex items-center gap-2 text-gray-200 font-medium">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
-              <span>Downtown Texarkana Core [33.4251, -94.0477]</span>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-[10px] uppercase font-mono font-bold text-gray-400">
+              Start location
+              <input value={originInput} onChange={(e) => setOriginInput(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs normal-case font-sans text-gray-100 outline-none focus:border-blue-500" placeholder="Current location or address" />
+            </label>
+            <label className="text-[10px] uppercase font-mono font-bold text-gray-400">
+              Arrive exactly at
+              <input type="datetime-local" value={arrivalAt} onChange={(e) => setArrivalAt(e.target.value)} min={new Date().toISOString().slice(0, 16)} className="mt-1 w-full rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-xs normal-case font-sans text-gray-100 outline-none focus:border-blue-500" />
+            </label>
           </div>
 
           {/* TAB 1: PRESETS */}
