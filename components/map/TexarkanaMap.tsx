@@ -25,6 +25,9 @@ interface MapProps {
   onMapClickDestination: (coords: [number, number], name: string) => void;
   onLandmarkSelect: (key: string) => void;
   isTourActive?: boolean;
+  focusedCoords?: [number, number] | null;
+  hasRerouted?: boolean;
+  isRerouting?: boolean;
 }
 
 export default function TexarkanaMap({
@@ -41,7 +44,10 @@ export default function TexarkanaMap({
   showLandmarks,
   onMapClickDestination,
   onLandmarkSelect,
-  isTourActive
+  isTourActive,
+  focusedCoords,
+  hasRerouted = false,
+  isRerouting = false
 }: MapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -139,18 +145,33 @@ export default function TexarkanaMap({
       if (!showGeofences) return;
 
       GEOFENCE_ZONES.forEach((zone) => {
+        const isHazard = zone.type === 'hazardous' || zone.isHazardous;
         const polygon = L.polygon(zone.coordinates as any, {
-          color: zone.color,
-          weight: 2,
-          opacity: 0.8,
-          fillColor: zone.fillColor,
-          fillOpacity: 0.12,
-          dashArray: zone.type === 'corridor' ? '4, 6' : undefined,
+          color: isHazard ? '#ef4444' : zone.color,
+          weight: isHazard ? 3 : 2,
+          opacity: isHazard ? 0.95 : 0.8,
+          fillColor: isHazard ? '#dc2626' : zone.fillColor,
+          fillOpacity: isHazard ? 0.32 : 0.12,
+          dashArray: isHazard ? '6, 6' : zone.type === 'corridor' ? '4, 6' : undefined,
+          className: isHazard ? 'hazardous-polygon' : undefined,
         }).addTo(map);
 
-        polygon.bindTooltip(`<b>${zone.name}</b><br/><span style="font-size:10px">${zone.description}</span>`, {
+        const tooltipHtml = isHazard
+          ? `<div style="background: rgba(153, 27, 27, 0.95); color: #fff; padding: 6px 10px; border-radius: 8px; font-family: monospace; border: 1.5px solid #ef4444; box-shadow: 0 4px 14px rgba(239,68,68,0.5);">
+               <div style="font-size: 11px; font-weight: 800; display: flex; align-items: center; gap: 4px; color: #fecaca;">
+                 <span>⚠️ HAZARDOUS GEOFENCE</span>
+               </div>
+               <div style="font-size: 10px; font-weight: 600; margin-top: 2px;">${zone.name}</div>
+               <div style="font-size: 9px; opacity: 0.9; margin-top: 2px; max-width: 200px;">${zone.description}</div>
+               <div style="margin-top: 4px; font-size: 8px; color: #fef08a; background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; text-transform: uppercase; font-weight: bold;">
+                 ⚡ Auto-Reroute Engine Armed
+               </div>
+             </div>`
+          : `<b>${zone.name}</b><br/><span style="font-size:10px">${zone.description}</span>`;
+
+        polygon.bindTooltip(tooltipHtml, {
           sticky: true,
-          className: 'geofence-tooltip',
+          className: isHazard ? 'hazard-tooltip-wrapper' : 'geofence-tooltip',
         });
 
         geofenceLayersRef.current.push(polygon);
@@ -270,19 +291,22 @@ export default function TexarkanaMap({
 
       if (!activeTraceWaypoints || activeTraceWaypoints.length < 2) return;
 
-      // Outer glow line
+      // Outer glow line with dynamic reroute alert/safe color
+      const glowColor = isRerouting ? '#f59e0b' : hasRerouted ? '#10b981' : '#60a5fa';
+      const mainColor = isRerouting ? '#d97706' : hasRerouted ? '#059669' : '#2563eb';
+
       const glowLine = L.polyline(activeTraceWaypoints as any, {
-        color: '#60a5fa',
-        weight: 6,
-        opacity: 0.35,
+        color: glowColor,
+        weight: hasRerouted || isRerouting ? 8 : 6,
+        opacity: isRerouting ? 0.6 : hasRerouted ? 0.45 : 0.35,
       });
 
       // Core dashed animated route line
       const mainLine = L.polyline(activeTraceWaypoints as any, {
-        color: '#2563eb',
+        color: mainColor,
         weight: 3.5,
         opacity: 0.95,
-        dashArray: '8, 8',
+        dashArray: hasRerouted ? '6, 6' : '8, 8',
       });
 
       routeLayerRef.current = L.layerGroup([glowLine, mainLine]).addTo(map);
@@ -292,7 +316,7 @@ export default function TexarkanaMap({
         map.fitBounds(mainLine.getBounds(), { padding: [60, 60], maxZoom: 15 });
       }
     });
-  }, [activeTraceWaypoints, followAgent, isTourActive, leafletLoaded]);
+  }, [activeTraceWaypoints, followAgent, isTourActive, hasRerouted, isRerouting, leafletLoaded]);
 
   // 8. Fleet Agent Markers & Heading updates
   useEffect(() => {
@@ -359,6 +383,12 @@ export default function TexarkanaMap({
       }
     });
   }, [agents, activeAgentId, followAgent, isTourActive, leafletLoaded]);
+
+  // 9. Manual Agent Focus from Locate Button
+  useEffect(() => {
+    if (!leafletLoaded || !mapInstanceRef.current || !focusedCoords) return;
+    mapInstanceRef.current.panTo(focusedCoords, { animate: true, duration: 0.8 });
+  }, [focusedCoords, leafletLoaded]);
 
   return (
     <div className="relative w-full h-full select-none">

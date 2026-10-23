@@ -34,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
         suppressHydrationWarning
-        className={`bg-[#0b0f19] text-gray-100 antialiased overflow-hidden selection:bg-blue-600 selection:text-white font-sans ${jakarta.variable} ${jetbrains.variable}`}
+        className={`command-center-bg text-gray-100 antialiased overflow-hidden selection:bg-blue-600 selection:text-white font-sans ${jakarta.variable} ${jetbrains.variable}`}
       >
         {children}
       </body>

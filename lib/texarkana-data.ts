@@ -11,12 +11,13 @@ export interface Landmark {
 export interface GeofenceZone {
   id: string;
   name: string;
-  type: 'safe' | 'warning' | 'restricted' | 'corridor';
+  type: 'safe' | 'warning' | 'restricted' | 'corridor' | 'hazardous';
   color: string;
   fillColor: string;
   coordinates: [number, number][];
   description: string;
   maxSpeedMph: number;
+  isHazardous?: boolean;
 }
 
 export interface AutonomousAgent {
@@ -34,6 +35,8 @@ export interface AutonomousAgent {
   currentZone?: string;
   autonomyLevel: 'L3 Conditional' | 'L4 High' | 'L5 Full Autonomous';
   avatarColor: string;
+  assignedDestination?: string;
+  destinationCoords?: [number, number];
 }
 
 export const TEXARKANA_CENTER: [number, number] = [33.4251, -94.0477];
@@ -164,6 +167,22 @@ export const GEOFENCE_ZONES: GeofenceZone[] = [
       [33.4420, -93.9780],
       [33.4420, -94.0050]
     ]
+  },
+  {
+    id: 'zone-downtown-hazard',
+    name: 'State Line Hazmat Incident Corridor',
+    type: 'hazardous',
+    color: '#ef4444',
+    fillColor: '#dc2626',
+    maxSpeedMph: 0,
+    description: 'SIMULATED HAZARDOUS ZONE: Active chemical spill containment perimeter on State Line Ave. Autonomous vehicles must trigger automatic rerouting around this exclusion boundary.',
+    isHazardous: true,
+    coordinates: [
+      [33.4420, -94.0505],
+      [33.4420, -94.0370],
+      [33.4290, -94.0370],
+      [33.4290, -94.0505]
+    ]
   }
 ];
 
@@ -181,7 +200,9 @@ export const INITIAL_FLEET: AutonomousAgent[] = [
     headingDeg: 45,
     signalRssi: -48,
     autonomyLevel: 'L4 High',
-    avatarColor: '#2563eb'
+    avatarColor: '#2563eb',
+    assignedDestination: 'State Line Post Office & Courthouse',
+    destinationCoords: [33.4253, -94.0430]
   },
   {
     id: 'agent-scout-02',
@@ -196,7 +217,9 @@ export const INITIAL_FLEET: AutonomousAgent[] = [
     headingDeg: 120,
     signalRssi: -56,
     autonomyLevel: 'L5 Full Autonomous',
-    avatarColor: '#8b5cf6'
+    avatarColor: '#8b5cf6',
+    assignedDestination: 'TAMU-Texarkana Testbed',
+    destinationCoords: [33.4735, -94.1165]
   },
   {
     id: 'agent-transit-03',
@@ -211,7 +234,9 @@ export const INITIAL_FLEET: AutonomousAgent[] = [
     headingDeg: 270,
     signalRssi: -52,
     autonomyLevel: 'L4 High',
-    avatarColor: '#059669'
+    avatarColor: '#059669',
+    assignedDestination: 'Historic Perot Theatre',
+    destinationCoords: [33.4222, -94.0433]
   }
 ];
 
@@ -302,4 +327,122 @@ export function findCurrentGeofence(point: [number, number]): GeofenceZone | nul
     }
   }
   return null;
+}
+
+/**
+ * Check if a coordinate is inside or close to a polygon geofence (with safety buffer)
+ */
+export function isPointInsideOrNearPolygon(
+  point: [number, number],
+  polygon: [number, number][],
+  bufferDeg: number = 0.0018
+): boolean {
+  if (isPointInsidePolygon(point, polygon)) return true;
+
+  for (const vertex of polygon) {
+    const dLat = Math.abs(point[0] - vertex[0]);
+    const dLng = Math.abs(point[1] - vertex[1]);
+    if (dLat < bufferDeg && dLng < bufferDeg) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Scans path waypoints starting from currentIndex to detect if upcoming trajectory penetrates a hazardous geofence
+ */
+export function detectHazardOnPath(
+  waypoints: [number, number][],
+  currentIndex: number,
+  hazardZone: GeofenceZone
+): {
+  hasHazard: boolean;
+  hazardIndex: number;
+  hazardPoint: [number, number] | null;
+  distanceToHazardMiles: number;
+} {
+  for (let i = currentIndex; i < waypoints.length; i++) {
+    const pt = waypoints[i];
+    if (isPointInsideOrNearPolygon(pt, hazardZone.coordinates, 0.002)) {
+      const dist = calculateDistanceMiles(waypoints[currentIndex], pt);
+      return {
+        hasHazard: true,
+        hazardIndex: i,
+        hazardPoint: pt,
+        distanceToHazardMiles: dist,
+      };
+    }
+  }
+  return {
+    hasHazard: false,
+    hazardIndex: -1,
+    hazardPoint: null,
+    distanceToHazardMiles: Infinity,
+  };
+}
+
+/**
+ * Calculates a smooth, safe evasion bypass trajectory around a hazardous zone
+ */
+export function generateHazardEvasionRoute(
+  start: [number, number],
+  end: [number, number],
+  hazardZone: GeofenceZone,
+  steps: number = 180
+): [number, number][] {
+  // Compute hazard bounding box and centroid
+  let minLat = 90;
+  let maxLat = -90;
+  let minLng = 180;
+  let maxLng = -180;
+  let sumLat = 0;
+  let sumLng = 0;
+  const count = hazardZone.coordinates.length;
+
+  for (const [lat, lng] of hazardZone.coordinates) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    sumLat += lat;
+    sumLng += lng;
+  }
+
+  const centerLat = sumLat / count;
+  const centerLng = sumLng / count;
+
+  // Determine evasion offset direction (West detour vs East detour)
+  const avgLng = (start[1] + end[1]) / 2;
+  const evadeWest = avgLng <= centerLng;
+
+  // Generous safety clearance margin (0.012 deg ≈ 0.8 mile clearance buffer outside hazard edge)
+  const clearanceLat = (maxLat - minLat) * 0.15 + 0.006;
+  const clearanceLng = (maxLng - minLng) * 0.28 + 0.012;
+
+  const bypassWaypoint1: [number, number] = [
+    Number((centerLat - clearanceLat).toFixed(6)),
+    Number((evadeWest ? minLng - clearanceLng : maxLng + clearanceLng).toFixed(6)),
+  ];
+
+  const bypassWaypoint2: [number, number] = [
+    Number((centerLat + clearanceLat).toFixed(6)),
+    Number((evadeWest ? minLng - clearanceLng : maxLng + clearanceLng).toFixed(6)),
+  ];
+
+  // If start is north of center, reverse bypass points to ensure natural progression
+  const orderedBypass = start[0] > centerLat 
+    ? [bypassWaypoint2, bypassWaypoint1] 
+    : [bypassWaypoint1, bypassWaypoint2];
+
+  // Generate multi-segment smooth trajectory:
+  const seg1Steps = Math.floor(steps / 3);
+  const seg2Steps = Math.floor(steps / 3);
+  const seg3Steps = steps - seg1Steps - seg2Steps;
+
+  const seg1 = generateRoutePoints(start, orderedBypass[0], seg1Steps);
+  const seg2 = generateRoutePoints(orderedBypass[0], orderedBypass[1], seg2Steps).slice(1);
+  const seg3 = generateRoutePoints(orderedBypass[1], end, seg3Steps).slice(1);
+
+  return [...seg1, ...seg2, ...seg3];
 }

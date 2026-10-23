@@ -32,3 +32,64 @@
   transition: transform 0.85s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
+/* Permanent Aerospace / Command Center Background Template */
+.command-center-bg {
+  background-color: #060911;
+  background-image: 
+    radial-gradient(circle at 50% 50%, rgba(30, 58, 138, 0.14) 0%, transparent 65%),
+    radial-gradient(circle at 15% 20%, rgba(14, 165, 233, 0.08) 0%, transparent 45%),
+    linear-gradient(rgba(59, 130, 246, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.04) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+}
+
+/* Tactical HUD Corner Brackets */
+.hud-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  z-index: 30;
+}
+.hud-corner-tl {
+  top: 8px;
+  left: 8px;
+  border-top: 2px solid rgba(59, 130, 246, 0.55);
+  border-left: 2px solid rgba(59, 130, 246, 0.55);
+}
+.hud-corner-tr {
+  top: 8px;
+  right: 8px;
+  border-top: 2px solid rgba(59, 130, 246, 0.55);
+  border-right: 2px solid rgba(59, 130, 246, 0.55);
+}
+.hud-corner-bl {
+  bottom: 8px;
+  left: 8px;
+  border-bottom: 2px solid rgba(59, 130, 246, 0.55);
+  border-left: 2px solid rgba(59, 130, 246, 0.55);
+}
+.hud-corner-br {
+  bottom: 8px;
+  right: 8px;
+  border-bottom: 2px solid rgba(59, 130, 246, 0.55);
+  border-right: 2px solid rgba(59, 130, 246, 0.55);
+}
+
+/* Hazardous Zone Pulse Animation */
+@keyframes hazard-pulse {
+  0%, 100% {
+    fill-opacity: 0.18;
+    stroke-opacity: 0.85;
+  }
+  50% {
+    fill-opacity: 0.38;
+    stroke-opacity: 1;
+  }
+}
+
+.hazardous-polygon {
+  animation: hazard-pulse 2s infinite ease-in-out;
+}
+
+

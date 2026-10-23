@@ -13,20 +13,28 @@ import {
   GraduationCap,
   Trees,
   Waves,
-  Radio
+  Radio,
+  Users,
+  AlertTriangle,
+  ShieldAlert
 } from 'lucide-react';
 import {
   TEXARKANA_CENTER,
   PRESET_LANDMARKS,
   INITIAL_FLEET,
+  GEOFENCE_ZONES,
   AutonomousAgent,
   GeofenceZone,
   generateRoutePoints,
   calculateDistanceMiles,
   calculateBearingDeg,
-  findCurrentGeofence
+  findCurrentGeofence,
+  detectHazardOnPath,
+  generateHazardEvasionRoute,
+  isPointInsideOrNearPolygon
 } from '@/lib/texarkana-data';
 import AgentTraceCard from '@/components/dashboard/AgentTraceCard';
+import FleetSummaryPanel from '@/components/dashboard/FleetSummaryPanel';
 import TelemetryDrawer, { TelemetryLog } from '@/components/console/TelemetryDrawer';
 import DestinationModal from '@/components/modals/DestinationModal';
 import TourController, { TEXARKANA_TOUR_STEPS } from '@/components/dashboard/TourController';
@@ -75,6 +83,8 @@ export default function Home() {
   const [followAgent, setFollowAgent] = useState<boolean>(true);
   const [showGeofences, setShowGeofences] = useState<boolean>(true);
   const [showLandmarks, setShowLandmarks] = useState<boolean>(true);
+  const [showFleetSummary, setShowFleetSummary] = useState<boolean>(true);
+  const [focusedCoords, setFocusedCoords] = useState<[number, number] | null>(null);
 
   // --- Trace & Mission State ---
   const [isTraceActive, setIsTraceActive] = useState<boolean>(false);
@@ -87,6 +97,8 @@ export default function Home() {
   const [waypoints, setWaypoints] = useState<[number, number][]>([]);
   const [currentWaypointIndex, setCurrentWaypointIndex] = useState<number>(0);
   const [activeGeofence, setActiveGeofence] = useState<GeofenceZone | null>(null);
+  const [hasRerouted, setHasRerouted] = useState<boolean>(false);
+  const [isRerouting, setIsRerouting] = useState<boolean>(false);
 
   // --- Telemetry Drawer & Logs ---
   const [isConsoleOpen, setIsConsoleOpen] = useState<boolean>(false);
@@ -129,11 +141,60 @@ export default function Home() {
 
   const activeAgent = fleet.find((a) => a.id === activeAgentId) || fleet[0];
 
+  // --- Locate Agent on Map ---
+  const handleLocateAgent = useCallback(
+    (coords: [number, number], agentName: string) => {
+      setFollowAgent(false);
+      setFocusedCoords([coords[0], coords[1]]);
+      showToast(`Located ${agentName} on map`);
+      addLog(
+        'GEOPROCESSOR',
+        `Camera focused on agent [${agentName}] at coordinates [${coords[0].toFixed(4)}, ${coords[1].toFixed(4)}].`
+      );
+    },
+    [addLog, showToast]
+  );
+
+  // --- Automated Rerouting Engine around Hazardous Geofences ---
+  const triggerAutomatedReroute = useCallback(
+    (fromCoord: [number, number], toCoord: [number, number], hazard: GeofenceZone) => {
+      setIsRerouting(true);
+      setHasRerouted(true);
+
+      addLog(
+        'ALERT',
+        `⚠️ HAZARDOUS GEOFENCE DETECTED: Path intersects [${hazard.name}]. Autonomous reroute algorithm initiated.`
+      );
+      showToast(`⚠️ Hazard Encountered! Auto-rerouting around ${hazard.name}`);
+
+      // Generate smooth bypass trajectory that safely clears the hazardous boundary
+      const evasionPts = generateHazardEvasionRoute(fromCoord, toCoord, hazard, 180);
+      setWaypoints(evasionPts);
+      setCurrentWaypointIndex(0);
+
+      addLog(
+        'VELOCITY_PID',
+        `PID Trajectory Engine: Computed ${evasionPts.length} safe detour waypoints. Bypass clearance: +0.82 mi around exclusion zone.`
+      );
+      addLog(
+        'AI_MISSION',
+        `Automated Rerouting Active: Trajectory safely diverted outside ${hazard.name}. Mission tracking resumed.`
+      );
+
+      setTimeout(() => {
+        setIsRerouting(false);
+      }, 3500);
+    },
+    [addLog, showToast]
+  );
+
   // --- Initialize Route Trace Function ---
   const initializeTrace = useCallback(
     (targetName: string, targetCoords: [number, number], aiPlan?: any) => {
       setDestinationName(targetName);
       setDestinationCoords(targetCoords);
+      setHasRerouted(false);
+      setIsRerouting(false);
 
       const start = activeAgent.currentCoords;
       // High-resolution 180 points for smooth, reduced speed movement
@@ -141,6 +202,20 @@ export default function Home() {
       setWaypoints(pts);
       setCurrentWaypointIndex(0);
       setIsTraceActive(true);
+
+      // Update fleet active agent with en_route status and assigned destination
+      setFleet((prev) =>
+        prev.map((agent) =>
+          agent.id === activeAgentId
+            ? {
+                ...agent,
+                status: 'en_route',
+                assignedDestination: targetName,
+                destinationCoords: targetCoords,
+              }
+            : agent
+        )
+      );
 
       const totalDist = calculateDistanceMiles(start, targetCoords);
 
@@ -155,8 +230,31 @@ export default function Home() {
 
       showToast(`Target Set: ${targetName}`);
     },
-    [activeAgent.currentCoords, addLog, showToast]
+    [activeAgent.currentCoords, activeAgentId, addLog, showToast]
   );
+
+  // --- Simulated Hazard Encounter Demonstration Trigger ---
+  const handleSimulateHazard = useCallback(() => {
+    const hazardZone =
+      GEOFENCE_ZONES.find((z) => z.isHazardous) || GEOFENCE_ZONES[GEOFENCE_ZONES.length - 1];
+
+    if (isTraceActive && destinationCoords) {
+      triggerAutomatedReroute(activeAgent.currentCoords, destinationCoords, hazardZone);
+    } else {
+      // Start mission toward TAMUT (crosses the State Line corridor) and trigger automated reroute
+      const target = PRESET_LANDMARKS.tamut;
+      initializeTrace(target.name, target.coords);
+      setTimeout(() => {
+        triggerAutomatedReroute(activeAgent.currentCoords, target.coords, hazardZone);
+      }, 1400);
+    }
+  }, [
+    isTraceActive,
+    destinationCoords,
+    activeAgent.currentCoords,
+    triggerAutomatedReroute,
+    initializeTrace,
+  ]);
 
   // --- Read URL search params safely after mounting ---
   useEffect(() => {
@@ -246,6 +344,20 @@ export default function Home() {
         const currentZone = findCurrentGeofence(currentPt);
         setActiveGeofence(currentZone);
 
+        // --- Automated Dynamic Rerouting when encountering Hazardous Geofence ---
+        if (!hasRerouted && destinationCoords) {
+          const hazardZone = GEOFENCE_ZONES.find((z) => z.isHazardous);
+          if (hazardZone) {
+            const isInsideHazard = isPointInsideOrNearPolygon(currentPt, hazardZone.coordinates, 0.0018);
+            const pathHazardScan = detectHazardOnPath(waypoints, nextIdx, hazardZone);
+
+            if (isInsideHazard || (pathHazardScan.hasHazard && pathHazardScan.distanceToHazardMiles < 0.45)) {
+              triggerAutomatedReroute(currentPt, destinationCoords, hazardZone);
+              return 0;
+            }
+          }
+        }
+
         const cappedSpeed = currentZone?.maxSpeedMph ? Math.min(baseSpeed, currentZone.maxSpeedMph) : baseSpeed;
 
         setFleet((fleetPrev) =>
@@ -286,7 +398,19 @@ export default function Home() {
     }, intervalMs);
 
     return () => clearInterval(interval);
-  }, [isTraceActive, waypoints, activeAgentId, destinationName, activeAgent.battery, speedMode, addLog, showToast]);
+  }, [
+    isTraceActive,
+    waypoints,
+    activeAgentId,
+    destinationName,
+    destinationCoords,
+    hasRerouted,
+    triggerAutomatedReroute,
+    activeAgent.battery,
+    speedMode,
+    addLog,
+    showToast,
+  ]);
 
   // --- Start & Step Automated Tour ---
   const handleStartTour = useCallback(() => {
@@ -368,7 +492,7 @@ export default function Home() {
 
   if (!mounted) {
     return (
-      <main className="relative w-screen h-screen overflow-hidden bg-[#0b0f19] font-sans text-gray-100 flex flex-col items-center justify-center select-none" suppressHydrationWarning>
+      <main className="relative w-screen h-screen overflow-hidden command-center-bg font-sans text-gray-100 flex flex-col items-center justify-center select-none" suppressHydrationWarning>
         <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
         <p className="text-xs font-mono tracking-wider text-slate-300 mt-3">INITIALIZING TEXARKANA GEOPROCESSOR...</p>
       </main>
@@ -376,7 +500,49 @@ export default function Home() {
   }
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#0b0f19] font-sans text-gray-100 select-none" suppressHydrationWarning>
+    <main className="relative w-screen h-screen overflow-hidden command-center-bg font-sans text-gray-100 select-none" suppressHydrationWarning>
+      {/* Permanent Aerospace / Defense Command Center Background Template */}
+      <div className="hud-corner hud-corner-tl" />
+      <div className="hud-corner hud-corner-tr" />
+      <div className="hud-corner hud-corner-bl" />
+      <div className="hud-corner hud-corner-br" />
+
+      {/* Top Aerospace Ticker Strip */}
+      <div className="absolute top-1 left-10 right-10 z-10 pointer-events-none flex items-center justify-between text-[9px] font-mono tracking-widest text-blue-400/80 border-b border-blue-500/15 pb-1 select-none">
+        <div className="flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+          <span className="font-bold">TEXARKANA AUTONOMOUS OPERATIONS CORE // AR-TX GRID</span>
+        </div>
+        <div className="hidden lg:flex items-center gap-4 text-slate-400">
+          <span>LAT: 33°25&apos;30&quot; N</span>
+          <span>LNG: 94°02&apos;51&quot; W</span>
+          <span>GEOID: WGS-84</span>
+          <span>RTK LOCK: 14 SATS</span>
+          <span className="text-emerald-400 font-bold">STATUS: ARMED</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-400">
+          <span>BI-STATE CORRIDOR</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        </div>
+      </div>
+
+      {/* Viewport Frame Border */}
+      <div className="absolute inset-2 sm:inset-2.5 rounded-3xl border border-blue-500/20 pointer-events-none z-10 shadow-[inset_0_0_30px_rgba(30,58,138,0.12)]" />
+
+      {/* Coordinate Gradation Edge Ticks */}
+      <div className="absolute left-1 top-1/2 -translate-y-1/2 flex flex-col gap-4 pointer-events-none z-10 text-[7px] font-mono text-blue-500/40 select-none">
+        <span>+33.48°</span>
+        <span>+33.45°</span>
+        <span>+33.42°</span>
+        <span>+33.39°</span>
+      </div>
+      <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-10 pointer-events-none z-10 text-[7px] font-mono text-blue-500/40 select-none">
+        <span>-94.12°</span>
+        <span>-94.08°</span>
+        <span>-94.04°</span>
+        <span>-94.00°</span>
+      </div>
+
       {/* 1. Fullscreen Map Canvas */}
       <TexarkanaMap
         agents={fleet}
@@ -390,6 +556,9 @@ export default function Home() {
         followAgent={followAgent}
         showGeofences={showGeofences}
         showLandmarks={showLandmarks}
+        focusedCoords={focusedCoords}
+        hasRerouted={hasRerouted}
+        isRerouting={isRerouting}
         onMapClickDestination={(coords, name) => {
           setDestinationCoords(coords);
           setDestinationName(name);
@@ -473,6 +642,16 @@ export default function Home() {
             <span>Wright Patman Lake</span>
           </button>
 
+          {/* Simulated Hazard Auto-Reroute Trigger */}
+          <button
+            onClick={handleSimulateHazard}
+            className="whitespace-nowrap px-3.5 py-1.5 glass-panel text-xs font-semibold rounded-xl bg-red-950/40 border border-red-500/40 hover:bg-red-900/60 transition flex items-center gap-1.5 text-red-300 hover:text-white"
+            title="Demonstrate automated dynamic rerouting around the State Line Hazmat incident"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+            <span>Hazard Auto-Reroute</span>
+          </button>
+
           {/* Automated Tour Trigger */}
           <TourController
             isTourActive={isTourActive}
@@ -536,6 +715,22 @@ export default function Home() {
             <Layers className="w-4 h-4" />
           </button>
 
+          {/* Toggle Fleet Summary Matrix Panel */}
+          <button
+            onClick={() => {
+              setShowFleetSummary((prev) => !prev);
+              showToast(!showFleetSummary ? 'Fleet Summary Matrix Enabled' : 'Fleet Summary Hidden');
+            }}
+            title={showFleetSummary ? 'Hide Fleet Summary Panel' : 'Show Fleet Summary Panel'}
+            className={`w-11 h-11 rounded-2xl shadow-lg border transition flex items-center justify-center ${
+              showFleetSummary
+                ? 'bg-blue-950/80 border-blue-500/50 text-blue-400'
+                : 'glass-panel text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+          </button>
+
           {/* Recenter Map on Texarkana */}
           <button
             onClick={() => {
@@ -589,6 +784,9 @@ export default function Home() {
             activeGeofence={activeGeofence}
             followAgent={followAgent}
             speedMode={speedMode}
+            hasRerouted={hasRerouted}
+            isRerouting={isRerouting}
+            onSimulateHazard={handleSimulateHazard}
             onSpeedModeChange={(mode) => {
               setSpeedMode(mode);
               showToast(
@@ -608,6 +806,32 @@ export default function Home() {
             }}
             onStopTrace={stopTrace}
             onCopyShareLink={handleCopyShareLink}
+          />
+        </div>
+      )}
+
+      {/* 5. Floating Fleet Summary Table Panel (Visible even when not in a trace) */}
+      {showFleetSummary && (
+        <div className="absolute bottom-14 left-4 md:left-6 z-20 max-w-[calc(100vw-2rem)] md:max-w-[480px]">
+          <FleetSummaryPanel
+            fleet={fleet}
+            activeAgentId={activeAgentId}
+            onSelectAgent={(agentId) => {
+              setActiveAgentId(agentId);
+              const ag = fleet.find((a) => a.id === agentId);
+              if (ag) {
+                showToast(`Switched active agent to ${ag.name}`);
+              }
+            }}
+            onLocateAgent={handleLocateAgent}
+            onStartAgentTrace={(agent) => {
+              setActiveAgentId(agent.id);
+              if (agent.destinationCoords && agent.assignedDestination) {
+                initializeTrace(agent.assignedDestination, agent.destinationCoords);
+              } else {
+                setIsDestModalOpen(true);
+              }
+            }}
           />
         </div>
       )}

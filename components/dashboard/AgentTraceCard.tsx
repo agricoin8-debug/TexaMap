@@ -11,7 +11,9 @@ import {
   Gauge,
   Clock,
   Layers,
-  Zap
+  Zap,
+  ShieldAlert,
+  AlertTriangle
 } from 'lucide-react';
 import { AutonomousAgent, GeofenceZone } from '@/lib/texarkana-data';
 
@@ -24,6 +26,9 @@ interface AgentTraceCardProps {
   activeGeofence: GeofenceZone | null;
   followAgent: boolean;
   speedMode: 'slow' | 'normal' | 'cruise';
+  hasRerouted?: boolean;
+  isRerouting?: boolean;
+  onSimulateHazard?: () => void;
   onSpeedModeChange: (mode: 'slow' | 'normal' | 'cruise') => void;
   onToggleFollow: () => void;
   onStopTrace: () => void;
@@ -39,6 +44,9 @@ export default function AgentTraceCard({
   activeGeofence,
   followAgent,
   speedMode,
+  hasRerouted = false,
+  isRerouting = false,
+  onSimulateHazard,
   onSpeedModeChange,
   onToggleFollow,
   onStopTrace,
@@ -83,6 +91,25 @@ export default function AgentTraceCard({
           <Navigation className="w-3.5 h-3.5 text-blue-400 shrink-0" />
           <span className="truncate">{destinationName}</span>
         </p>
+
+        {/* Dynamic Reroute Alert Banner */}
+        {isRerouting && (
+          <div className="mt-2 py-1.5 px-2.5 rounded-xl bg-amber-950/80 border border-amber-500/60 flex items-center gap-2 text-amber-300 font-mono text-[10px] font-bold animate-pulse">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>HAZARD ENCOUNTERED: AUTONOMOUS REROUTING...</span>
+          </div>
+        )}
+        {hasRerouted && !isRerouting && (
+          <div className="mt-2 py-1.5 px-2.5 rounded-xl bg-emerald-950/70 border border-emerald-500/50 flex items-center justify-between text-xs animate-in fade-in duration-300">
+            <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[10px] font-bold">
+              <ShieldAlert className="w-3.5 h-3.5 text-emerald-400" />
+              <span>AUTONOMOUS REROUTE ACTIVE</span>
+            </div>
+            <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold">
+              Hazard Evaded
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Geofence Status Ribbon */}
@@ -219,6 +246,17 @@ export default function AgentTraceCard({
           <span>Share Link</span>
         </button>
       </div>
+
+      {onSimulateHazard && (
+        <button
+          onClick={onSimulateHazard}
+          className="w-full mt-2 py-2 px-3 rounded-xl bg-red-950/60 hover:bg-red-900/80 border border-red-500/40 text-red-300 hover:text-white font-mono text-[10px] font-bold tracking-wider uppercase transition flex items-center justify-center gap-2 shadow-sm"
+          title="Simulate encountering a hazardous zone to test automated rerouting"
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+          <span>Simulate Hazard Encounter (Auto-Reroute)</span>
+        </button>
+      )}
     </div>
   );
 }
