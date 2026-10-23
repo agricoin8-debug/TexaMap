@@ -115,13 +115,11 @@ export default function TexarkanaMap({
         map.removeLayer(tileLayerRef.current);
       }
 
-      const cartoKey = process.env.NEXT_PUBLIC_CARTO_BASEMAP_API;
-      const cartoKeyQuery = cartoKey ? `?key=${encodeURIComponent(cartoKey)}` : '';
-      let tileUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${cartoKeyQuery}`;
+      let tileUrl = '/api/map-tiles/voyager/{z}/{x}/{y}';
       let maxZoom = 19;
 
       if (mapStyle === 'dark') {
-        tileUrl = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${cartoKeyQuery}`;
+        tileUrl = '/api/map-tiles/dark/{z}/{x}/{y}.png';
       } else if (mapStyle === 'satellite') {
         tileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
         maxZoom = 18;
